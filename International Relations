@@ -1,0 +1,127 @@
+// data feed URLs for International Relation News
+var dataSources = [
+  "http://www.thehindu.com/news/international/?service=rss",
+  "http://expressindia.indianexpress.com/syndications/ie.xml",
+  "http://expressindia.indianexpress.com/syndications/fe.xml",
+  "http://www.huffingtonpost.com/feeds/verticals/world/news.xml",
+  "http://www.worldaffairsjournal.org/essay-feed.xml",
+  "http://www.worldaffairsjournal.org/taxonomy/term/1/feed",
+  "http://www.worldaffairsjournal.org/taxonomy/term/2/feed",
+  "http://www.worldaffairsjournal.org/taxonomy/term/3/feed",
+  "http://www.worldaffairsjournal.org/taxonomy/term/4/feed",
+  "http://www.worldaffairsjournal.org/taxonomy/term/5/feed",
+  "http://www.worldaffairsjournal.org/taxonomy/term/7/feed",
+  "http://www.business-standard.com/rss/international-116.rss",
+  "http://www.frontline.in/world-affairs/?service=rss"
+  
+];
+// keyword triggers
+var keyWords = [
+  "WTO", "UNO", "World Bank", "IMF","WHO", "UNEP", "China", "USA", "West Asia", "Israel", "Africa", "Brazil", "South Africa",
+  "Japan", "Southeast Asia", "Asia", "Nepal", "Pakistan", "Sri Lanka", "Bangladesh", "Russia", "Europe", "European Union", "Australia", "Free Trade", "Security Council", 
+];
+
+// List to hold headlines that contain keywords
+var topStories = [];
+
+// Settings
+var HEADLINE_LIMIT = 15;                    // Number of headlines per news source
+var EMAIL_TITLE = "International News for the day";          // What to title the email
+
+
+function deliverNews()
+{
+  var newsMsg = ""; // will hold the completed HTML to email
+  var deliverAddress = Session.getActiveUser().getEmail();
+  
+  
+  
+  // Collect the headlines from the feeds and filter the top stories
+  var feedStoriesStr = "";
+  for (var i=0; i < dataSources.length; i++) {
+    feedStoriesStr += retrieveFeedItems(dataSources[i]);
+  }
+  
+  // Generate the Top Stories list that was created based on keywords
+  var topStoriesStr = "<h2>Top Stories</h2>";
+  if (topStories.length > 0) {
+    topStoriesStr += "<ul>";
+    for (var k=0; k<topStories.length; k++) {
+      topStoriesStr += "<li style='font-weight:bold'><a href='" + topStories[k].link + "'>" + 
+        topStories[k].title + "</a></li>\n";
+    }
+    topStoriesStr += "</ul>";
+  }
+  
+  function retrieveFeedItems(feedUrl) {
+  var feedSrc = UrlFetchApp.fetch(feedUrl).getContentText();
+  var feedDoc = null;
+  var str = "";
+  var itemCount = 0;
+  var root = null;
+  var type = "unknown";
+  
+  // to avoid having one bad XML feed take down the entire script,
+  // wrap the parsing in a try-catch block
+  try {
+    feedDoc = XmlService.parse(feedSrc);
+    if (feedDoc)
+      root = feedDoc.getRootElement();
+  }
+  catch (e) {
+    Logger.log("Error reading feed: " + feedUrl);
+    Logger.log(e);
+  }
+  
+  // detect the kind of feed this is. Right now only handles RSS 2.0
+  // but adding other formats would be easy enough
+  if (root && root.getName() == "rss") {
+    var version = root.getAttribute("version").getValue();
+    if (version == "2.0")
+      type = "rss2";
+  }
+  
+  if (type == "rss2") {
+    str += "<div>";
+    var channel = root.getChild("channel");
+    var items = channel.getChildren("item");
+    str += "<h2><a href='"+channel.getChildText("link")+"'>"+channel.getChildText("title")+"</a></h2>\n";
+    Logger.log("%s items from %s", items.length, channel.getChildText("title"));
+
+    // Limit the number of headlines
+    itemCount = (items.length > HEADLINE_LIMIT ? HEADLINE_LIMIT : items.length);
+    str += "<ul>";
+    for (var i=0; i < itemCount; i++) {
+      var keywordFound = false;
+      var strTitle = items[i].getChildText("title");
+      var strLink = items[i].getChildText("link");
+      
+      // If the title triggers a keyword, add it to the topStories list
+      for (var j=0; j < keyWords.length; j++) {
+        // simple index search, could be vastly improved
+        if ( strTitle.toLowerCase().indexOf(keyWords[j]) != -1) {
+          topStories.push( {title: strTitle, link: strLink} );
+          keywordFound=true;
+          break;
+        }
+      }
+      // If we didn't add this item to the topStories, add it to the main news
+      if (!keywordFound) {
+        str += "<li><a href='" + strLink + "'>" + strTitle + "</a></li>\n";
+      }
+      Logger.log(strTitle);
+    }
+    str += "</ul></div>\n";
+  }
+  
+  return str;
+}
+  
+  
+   // put all the data together
+  newsMsg = "<h1>" + EMAIL_TITLE + "</h1>\n" + topStoriesStr + feedStoriesStr;
+  
+  // Deliver the email message as HTML to the recipient
+  GmailApp.sendEmail(deliverAddress, EMAIL_TITLE, "", { htmlBody: newsMsg });
+  Logger.log(newsMsg.length);
+}
